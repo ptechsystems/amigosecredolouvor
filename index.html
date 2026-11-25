@@ -243,7 +243,8 @@ const nameInput = byId("name-input");
 const revealDialog = byId("reveal-dialog");
 const resetDialog = byId("reset-dialog");
 const url = new URL(location.href);
-let roomId = url.searchParams.get("sala");
+const defaultRoomId = "459597f40bb74c4296cf850b057e92a0";
+let roomId = url.searchParams.get("sala") ?? (url.searchParams.has("nova") ? null : defaultRoomId);
 let credentials = roomId ? (stored(sessionKey + roomId) ?? {}) : {};
 let state = null;
 let busy = false;
@@ -273,7 +274,7 @@ function secret() {
 
 function roomLink(id, keys = {}) {
   const link = new URL(location.pathname, location.origin);
-  link.searchParams.set("sala", id);
+  if (id !== defaultRoomId) link.searchParams.set("sala", id);
   link.hash = new URLSearchParams(keys).toString();
   return link.href;
 }
@@ -361,6 +362,7 @@ function render() {
   byId("draw-button").disabled = count < 2 || drawn;
   byId("reset-button").hidden = !admin;
   byId("admin-link").hidden = !admin;
+  byId("new-room-link").hidden = !admin;
   byId("member-link").hidden = !me;
   byId("draw-note").textContent = !admin
     ? "Aguarde o organizador realizar o sorteio."
@@ -599,6 +601,7 @@ document.addEventListener("visibilitychange", refresh);
           <button type="button" class="button button-green" id="invite-button"><span data-icon="clipboard"></span>Copiar link de convite</button>
           <button type="button" class="text-button" id="admin-link" hidden>Copiar meu link de organizador</button>
           <button type="button" class="text-button" id="member-link" hidden>Copiar meu link individual</button>
+          <a href="?nova=1" class="text-button" id="new-room-link" hidden>Criar outra sala</a>
           <input id="copy-fallback" aria-label="Link para copiar" readonly hidden>
           <p class="subtext" id="copy-note" role="status"></p>
         </section>
