@@ -358,6 +358,9 @@ function render() {
   byId("before-draw").hidden = drawn;
   byId("after-draw").hidden = !drawn;
   byId("draw-title").textContent = drawn ? "Sorteio realizado" : "Sorteio";
+  const organizer = byId("room-organizer");
+  organizer.hidden = roomId !== defaultRoomId;
+  organizer.textContent = admin ? "Pedro Maia · Você é o administrador" : "Administrador: Pedro Maia";
   byId("draw-button").hidden = !admin;
   byId("draw-button").disabled = count < 2 || drawn;
   byId("reset-button").hidden = !admin;
@@ -610,6 +613,7 @@ document.addEventListener("visibilitychange", refresh);
             <span class="tile tile-red"><span data-icon="shuffle"></span></span>
             <h2 id="draw-title">Sorteio</h2>
           </div>
+          <p class="subtext" id="room-organizer" hidden></p>
           <div id="before-draw">
             <p class="draw-text">Cada pessoa tira um nome diferente. Ninguém tira a si mesmo.</p>
             <button type="button" class="button button-red" id="draw-button" hidden disabled><span data-icon="sparkles"></span>Realizar sorteio</button>
