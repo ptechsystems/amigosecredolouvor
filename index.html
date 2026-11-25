@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123e32">
+  <meta name="description" content="Cadastre os participantes, sorteie os nomes e revele cada resultado em segredo.">
+  <title>Amigo Secreto</title>
+  <link rel="icon" href="./presente.png">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="./" aria-label="Amigo Secreto, início"><span class="brand-icon"><span data-icon="gift"></span></span>Amigo Secreto</a>
+      <button type="button" class="text-button help-button" id="help-button"><span data-icon="help"></span>Como funciona</button>
+    </div>
+  </header>
+  <main class="shell">
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-copy">
+        <h1 id="page-title">Amigo <em>Secreto</em></h1>
+        <p>Reúna a turma, sorteie os nomes e descubra quem vai receber o seu presente.</p>
+      </div>
+    </section>
+    <div class="workspace">
+      <section class="card participants-card" aria-labelledby="participants-title">
+        <header class="card-header">
+          <div class="card-heading">
+            <span class="tile tile-green"><span data-icon="users"></span></span>
+            <div>
+              <h2 id="participants-title">Participantes</h2>
+              <p class="subtext" id="participants-hint">Adicione quem vai participar da brincadeira.</p>
+            </div>
+          </div>
+          <span class="counter" id="counter" aria-label="Total de participantes">0</span>
+        </header>
+        <form id="add-form" novalidate>
+          <div class="add-row">
+            <input id="name-input" type="text" autocomplete="off" maxlength="60" placeholder="Nome do participante" aria-label="Nome do participante" aria-describedby="form-error">
+            <button type="submit" class="button button-green"><span data-icon="plus"></span>Adicionar</button>
+          </div>
+          <p id="form-error" class="error" role="alert" hidden></p>
+          <button type="button" id="bulk-button" class="text-button bulk-button"><span data-icon="clipboard"></span>Adicionar vários nomes</button>
+        </form>
+        <div id="empty" class="empty">
+          <span class="empty-icon"><span data-icon="users"></span></span>
+          <p><strong>Nenhum participante ainda</strong></p>
+          <p>Adicione pelo menos 2 pessoas para sortear.</p>
+        </div>
+        <ul id="participants" class="participants" aria-label="Lista de participantes" hidden></ul>
+      </section>
+      <aside class="siderail" aria-label="Sorteio">
+        <section class="card draw-card" aria-labelledby="draw-title">
+          <div class="card-heading">
+            <span class="tile tile-red"><span data-icon="shuffle"></span></span>
+            <h2 id="draw-title">Sorteio</h2>
+          </div>
+          <div id="before-draw">
+            <p class="draw-text">Cada pessoa tira um nome diferente. Ninguém tira a si mesmo.</p>
+            <button type="button" class="button button-red" id="draw-button" disabled><span data-icon="sparkles"></span>Realizar sorteio</button>
+            <p class="draw-note" id="draw-note">Mínimo de 2 participantes</p>
+          </div>
+          <div id="after-draw" hidden>
+            <p class="draw-text" id="draw-progress" role="status"></p>
+            <div class="progress" id="progress" role="progressbar" aria-label="Resultados revelados" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="progress-fill"></span></div>
+            <button type="button" class="text-button reset-button" id="reset-button"><span data-icon="refresh"></span>Desfazer sorteio</button>
+          </div>
+        </section>
+        <div class="privacy">
+          <span class="privacy-icon"><span data-icon="lock"></span></span>
+          <div><strong>O resultado é individual</strong><p>Passe o aparelho para cada pessoa ver quem tirou em segredo.</p></div>
+        </div>
+      </aside>
+    </div>
+    <p class="visually-hidden" id="status" role="status"></p>
+    <p class="storage-warning" id="storage-warning" role="status" hidden>O navegador não conseguiu salvar este sorteio. Mantenha a página aberta para continuar.</p>
+    <footer class="footer"><span data-icon="lock"></span>O sorteio fica salvo neste navegador.</footer>
+  </main>
+
+  <dialog id="bulk-dialog" aria-labelledby="bulk-title">
+    <form id="bulk-form" class="dialog-body" novalidate>
+      <button type="button" class="icon-button close" data-close aria-label="Fechar"><span data-icon="close"></span></button>
+      <span class="tile tile-green"><span data-icon="clipboard"></span></span>
+      <h2 id="bulk-title">Adicionar vários nomes</h2>
+      <label for="bulk-input">Digite ou cole um nome por linha.</label>
+      <textarea id="bulk-input" rows="6" placeholder="Ana&#10;Bruno&#10;Camila" aria-describedby="bulk-error" autofocus></textarea>
+      <p class="error" id="bulk-error" role="alert" hidden></p>
+      <button type="submit" class="button button-green"><span data-icon="plus"></span>Adicionar participantes</button>
+    </form>
+  </dialog>
+
+  <dialog id="help-dialog" aria-labelledby="help-title">
+    <div class="dialog-body">
+      <button type="button" class="icon-button close" data-close aria-label="Fechar"><span data-icon="close"></span></button>
+      <span class="tile tile-green"><span data-icon="help"></span></span>
+      <h2 id="help-title">Como funciona</h2>
+      <ol class="instructions">
+        <li>Adicione os nomes de pelo menos duas pessoas.</li>
+        <li>Toque em <strong>Realizar sorteio</strong>. Cada pessoa vai tirar um nome diferente, sem tirar o próprio.</li>
+        <li>Passe o aparelho de mão em mão. Cada pessoa toca no seu nome, revela o resultado e fecha a tela antes de passar adiante.</li>
+      </ol>
+      <button type="button" class="button button-green" data-close>Entendi</button>
+    </div>
+  </dialog>
+
+  <dialog id="reveal-dialog" aria-labelledby="reveal-title">
+    <div class="dialog-body reveal-body">
+      <button type="button" class="icon-button close" data-close aria-label="Fechar"><span data-icon="close"></span></button>
+      <span class="tile tile-red reveal-icon"><span data-icon="gift"></span></span>
+      <h2 id="reveal-title"></h2>
+      <p id="reveal-instruction">Abra seu resultado quando estiver com o aparelho só para você.</p>
+      <p class="secret-name" id="secret-name" hidden></p>
+      <button type="button" class="button button-red" id="reveal-button"><span data-icon="eye"></span>Revelar meu amigo secreto</button>
+      <button type="button" class="button button-green" id="hide-button" data-close hidden><span data-icon="lock"></span>Ocultar e fechar</button>
+    </div>
+  </dialog>
+
+  <dialog id="reset-dialog" aria-labelledby="reset-title">
+    <div class="dialog-body">
+      <button type="button" class="icon-button close" data-close aria-label="Fechar"><span data-icon="close"></span></button>
+      <span class="tile tile-red"><span data-icon="refresh"></span></span>
+      <h2 id="reset-title">Desfazer o sorteio?</h2>
+      <p>Os resultados serão apagados. Os nomes dos participantes continuarão na lista.</p>
+      <div class="dialog-actions">
+        <button type="button" class="button button-light" data-close autofocus>Cancelar</button>
+        <button type="button" class="button button-red" id="confirm-reset">Desfazer sorteio</button>
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>
