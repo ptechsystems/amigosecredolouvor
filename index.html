@@ -87,8 +87,10 @@ h2 { color: var(--ink); font: 700 1.65rem/1.12 var(--serif); letter-spacing: -.0
 .form-field label span { color: var(--subtle); font-weight: 400; }
 .form-field .subtext { margin: 0; }
 .form-field textarea { min-height: 90px; }
-.wish-edit-button { margin: -7px 0 11px; padding-inline: 10px; background: var(--green-tint); }
-.wish-edit-button:hover { background: #dce9df; }
+.wish-editor { display: grid; gap: 10px; margin-bottom: 18px; padding: 14px; background: var(--green-tint); border-radius: 12px; }
+.wish-editor .button { justify-self: start; }
+.wish-editor .error { margin-top: 0; }
+.wish-saved { color: var(--green-dark); font-size: .91rem; }
 input, textarea { width: 100%; min-width: 0; padding: 11px 13px; color: var(--ink); border: 1px solid #d8ded5; border-radius: 10px; background: #fff; }
 input::placeholder, textarea::placeholder { color: #69756b; }
 textarea { display: block; min-height: 130px; resize: vertical; }
@@ -122,18 +124,19 @@ textarea { display: block; min-height: 130px; resize: vertical; }
 .empty-icon { display: grid; place-items: center; width: 33px; height: 33px; margin-bottom: 5px; border-radius: 50%; background: #eaf1e8; color: var(--green); }
 .empty p:last-child { color: var(--subtle); font-size: .875rem; }
 .participants { display: grid; gap: 8px; max-height: 350px; overflow: auto; padding: 3px; margin: 12px -3px -3px; list-style: none; }
-#add-form[hidden] ~ .participants { margin-top: 0; }
 .participant-row { position: relative; display: flex; align-items: center; gap: 11px; min-width: 0; padding: 7px 8px 7px 10px; background: #f7f9f4; border: 1px solid #ebeee7; border-radius: 11px; }
 .avatar { display: grid; flex: none; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--green-tint); color: var(--green); font-size: .8rem; font-weight: 700; }
 .participant-details { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .participant-name { font-weight: 650; }
+summary.participant-name { padding-block: 5px; color: var(--green-dark); cursor: pointer; }
+summary.participant-name:hover { text-decoration: underline; }
+.participant-row:has(details[open]) { align-items: flex-start; }
 .participant-wishes { color: var(--subtle); font-size: .91rem; overflow-wrap: anywhere; white-space: pre-wrap; }
 .participant-details .participant-wishes { margin-top: 3px; }
 .reveal-wishes { padding: 12px; background: var(--green-tint); border-radius: 10px; }
 .reveal-wishes .participant-wishes { margin-top: 4px; }
 .participant-row .remove { flex: none; }
 .row-action { flex: none; min-height: 40px; }
-.row-action::after { content: ""; position: absolute; inset: 0; border-radius: 10px; }
 .participant-row:has(.row-action):hover { background: var(--green-tint); }
 .row-action.seen { color: var(--subtle); }
 .remove { color: #872034; }
@@ -254,8 +257,10 @@ const sessionKey = "amigo-secreto.online.";
 const list = byId("participants");
 const nameInput = byId("name-input");
 const joinWishes = byId("join-wishes");
-const wishesDialog = byId("wishes-dialog");
+const wishesForm = byId("wishes-form");
 const editWishesInput = byId("edit-wishes-input");
+let editorMember = null;
+let savedWishes = "";
 const revealDialog = byId("reveal-dialog");
 const resetDialog = byId("reset-dialog");
 const url = new URL(location.href);
@@ -317,7 +322,7 @@ function initials(name) {
   return name.split(" ").slice(0, 2).map(word => [...word][0]).join("").toLocaleUpperCase("pt-BR");
 }
 
-function renderPerson(person) {
+function renderPerson(person, openLists) {
   const row = document.createElement("li");
   row.className = "participant-row";
   const avatar = document.createElement("span");
@@ -325,17 +330,20 @@ function renderPerson(person) {
   avatar.setAttribute("aria-hidden", "true");
   avatar.textContent = initials(person.name);
 
-  const label = document.createElement("span");
-  label.className = "participant-name";
+  const canViewWishes = state.admin || state.me;
   const isMine = state.me === person.id;
-  label.textContent = person.name + (isMine ? " (você)" : "");
-  const details = document.createElement("div");
+  const details = document.createElement(canViewWishes ? "details" : "div");
   details.className = "participant-details";
+  const label = document.createElement(canViewWishes ? "summary" : "span");
+  label.className = "participant-name";
+  label.textContent = person.name + (isMine ? " (você)" : "");
   details.append(label);
-  if (person.wishes) {
+  if (canViewWishes) {
+    details.dataset.wishlist = person.id;
+    details.open = openLists.has(person.id);
     const wishes = document.createElement("p");
     wishes.className = "participant-wishes";
-    wishes.textContent = person.wishes;
+    wishes.textContent = person.wishes || "Ainda sem sugestões de presente.";
     details.append(wishes);
   }
   row.append(avatar, details);
@@ -377,12 +385,16 @@ function render() {
     ? (me ? "Abra seu resultado ao lado do seu nome." : "As inscrições foram encerradas.")
     : (me ? "Você já está na lista. Mantenha este link para voltar depois." : "Cadastre o seu nome para participar.");
   byId("add-form").hidden = drawn || Boolean(me);
-  byId("edit-wishes").hidden = !me;
-  const myWishes = people.find(person => person.id === me)?.wishes;
-  byId("edit-wishes-label").textContent = myWishes ? "Editar minha lista de desejos" : "Adicionar minha lista de desejos";
+  renderWishesEditor(me, people.find(person => person.id === me)?.wishes ?? "");
+  byId("participants-wishes-hint").hidden = !count || !(admin || me);
   byId("empty").hidden = count !== 0;
   list.hidden = count === 0;
-  list.replaceChildren(...people.map(renderPerson));
+  const openLists = new Set([...list.querySelectorAll("details[open]")].map(details => details.dataset.wishlist));
+  const focusedList = document.activeElement?.closest("summary")?.parentElement.dataset.wishlist;
+  const rows = people.map(person => renderPerson(person, openLists));
+  list.replaceChildren(...rows);
+  if (focusedList) rows.find(row => row.querySelector("details")?.dataset.wishlist === focusedList)
+    ?.querySelector("summary")?.focus({preventScroll: true});
   byId("before-draw").hidden = drawn;
   byId("after-draw").hidden = !drawn;
   byId("draw-title").textContent = drawn ? "Sorteio realizado" : "Sorteio";
@@ -406,6 +418,17 @@ function render() {
     byId("progress").setAttribute("aria-valuenow", percentage);
     byId("progress-fill").style.width = percentage + "%";
   }
+}
+
+function renderWishesEditor(member, wishes) {
+  wishesForm.hidden = !member;
+  if (editorMember !== member) {
+    showMessage("wishes-error");
+    showMessage("wishes-feedback");
+  }
+  if (editorMember !== member || editWishesInput.value === savedWishes) editWishesInput.value = wishes;
+  editorMember = member;
+  savedWishes = wishes;
 }
 
 function update(next) {
@@ -481,26 +504,23 @@ byId("add-form").addEventListener("submit", async event => {
 nameInput.addEventListener("input", () => showMessage("form-error"));
 joinWishes.addEventListener("input", () => showMessage("form-error"));
 
-byId("edit-wishes").addEventListener("click", () => {
-  const person = state.people.find(entry => entry.id === state.me);
-  if (!person) return;
-  editWishesInput.value = person.wishes ?? "";
+editWishesInput.addEventListener("input", () => {
   showMessage("wishes-error");
-  wishesDialog.showModal();
-  editWishesInput.focus();
+  showMessage("wishes-feedback");
 });
-editWishesInput.addEventListener("input", () => showMessage("wishes-error"));
-byId("wishes-form").addEventListener("submit", async event => {
+wishesForm.addEventListener("submit", async event => {
   event.preventDefault();
   if (busy) return;
   const button = byId("save-wishes");
   button.disabled = true;
+  editWishesInput.readOnly = true;
+  showMessage("wishes-feedback");
   const response = await transact("update-wishes", {wishes: editWishesInput.value}, "wishes-error");
+  editWishesInput.readOnly = false;
   button.disabled = false;
   if (!response) return;
-  wishesDialog.close();
-  byId("status").textContent = "Sua lista de desejos foi salva.";
-  byId("edit-wishes").focus({preventScroll: true});
+  editWishesInput.value = savedWishes;
+  showMessage("wishes-feedback", "Suas sugestões foram salvas.");
 });
 
 async function copyLink(keys, message) {
@@ -646,7 +666,7 @@ document.addEventListener("visibilitychange", refresh);
               <input id="name-input" type="text" autocomplete="name" maxlength="60" placeholder="Digite seu nome" aria-describedby="form-error">
             </div>
             <div class="form-field">
-              <label for="join-wishes">Lista de desejos <span>(opcional)</span></label>
+              <label for="join-wishes">Sugestões de presente <span>(opcional)</span></label>
               <textarea id="join-wishes" rows="3" maxlength="500" placeholder="Uma sugestão de presente por linha" aria-describedby="join-wishes-hint form-error"></textarea>
               <p class="subtext" id="join-wishes-hint">Os participantes da sala poderão ver suas sugestões ao lado do seu nome.</p>
             </div>
@@ -654,7 +674,17 @@ document.addEventListener("visibilitychange", refresh);
           </div>
           <p id="form-error" class="error" role="alert" hidden></p>
         </form>
-        <button type="button" class="text-button wish-edit-button" id="edit-wishes" hidden><span data-icon="gift"></span><span id="edit-wishes-label">Minha lista de desejos</span></button>
+        <form class="wish-editor" id="wishes-form" hidden>
+          <div class="form-field">
+            <label for="edit-wishes-input">Minhas sugestões de presente</label>
+            <textarea id="edit-wishes-input" rows="3" maxlength="500" placeholder="Uma sugestão de presente por linha" aria-describedby="edit-wishes-hint wishes-error"></textarea>
+            <p class="subtext" id="edit-wishes-hint">Os participantes podem ver suas sugestões ao tocar no seu nome.</p>
+          </div>
+          <p class="error" id="wishes-error" role="alert" hidden></p>
+          <button type="submit" class="button button-green" id="save-wishes"><span data-icon="gift"></span>Salvar sugestões</button>
+          <p class="wish-saved" id="wishes-feedback" role="status" hidden></p>
+        </form>
+        <p class="subtext" id="participants-wishes-hint" hidden>Toque em um nome para ver as sugestões de presente.</p>
         <div id="empty" class="empty">
           <span class="empty-icon"><span data-icon="users"></span></span>
           <p><strong>Nenhum participante ainda</strong></p>
@@ -714,20 +744,6 @@ document.addEventListener("visibilitychange", refresh);
       </ol>
       <button type="button" class="button button-green" data-close>Entendi</button>
     </div>
-  </dialog>
-
-  <dialog id="wishes-dialog" aria-labelledby="wishes-title">
-    <form class="dialog-body" id="wishes-form">
-      <button type="button" class="icon-button close" data-close aria-label="Fechar"><span data-icon="close"></span></button>
-      <h2 id="wishes-title">Minha lista de desejos</h2>
-      <div class="form-field">
-        <label for="edit-wishes-input">Sugestões de presente</label>
-        <textarea id="edit-wishes-input" rows="4" maxlength="500" placeholder="Uma sugestão de presente por linha" aria-describedby="edit-wishes-hint wishes-error"></textarea>
-        <p class="subtext" id="edit-wishes-hint">Os participantes da sala poderão ver suas sugestões ao lado do seu nome.</p>
-      </div>
-      <p class="error" id="wishes-error" role="alert" hidden></p>
-      <button type="submit" class="button button-green" id="save-wishes">Salvar lista</button>
-    </form>
   </dialog>
 
   <dialog id="reveal-dialog" aria-labelledby="reveal-title">
