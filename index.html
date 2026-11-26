@@ -83,6 +83,8 @@ h2 { color: var(--ink); font: 700 1.65rem/1.12 var(--serif); letter-spacing: -.0
 .registration-fields, .form-field { display: grid; gap: 7px; }
 .registration-fields { gap: 14px; justify-items: stretch; }
 #returning-participant { margin-bottom: 12px; }
+.registration { margin-top: 16px; }
+.registration > summary { padding-block: 8px; color: var(--green-dark); font-weight: 650; cursor: pointer; }
 .registration-fields .button { justify-self: start; }
 .form-field label { font-weight: 650; }
 .form-field label span { color: var(--subtle); font-weight: 400; }
@@ -326,7 +328,7 @@ function initials(name) {
   return name.split(" ").slice(0, 2).map(word => [...word][0]).join("").toLocaleUpperCase("pt-BR");
 }
 
-function renderPerson(person, openLists) {
+function renderPerson(person, openLists, canViewWishes) {
   const row = document.createElement("li");
   row.className = "participant-row";
   const avatar = document.createElement("span");
@@ -334,7 +336,6 @@ function renderPerson(person, openLists) {
   avatar.setAttribute("aria-hidden", "true");
   avatar.textContent = initials(person.name);
 
-  const canViewWishes = state.admin || state.me;
   const isMine = state.me === person.id;
   const details = document.createElement(canViewWishes ? "details" : "div");
   details.className = "participant-details";
@@ -393,18 +394,29 @@ function render() {
   byId("start").hidden = true;
   byId("counter").textContent = count;
   byId("counter").setAttribute("aria-label", count === 1 ? "1 participante" : count + " participantes");
-  byId("participants-hint").textContent = drawn
-    ? (me ? "Abra seu resultado ao lado do seu nome." : "As inscrições foram encerradas.")
-    : (me ? "Você já está na lista. Guarde seu link individual para acessar este cadastro em outro aparelho." : "Cadastre o seu nome para participar.");
+  const publicWishes = roomId === defaultRoomId;
+  const canViewWishes = publicWishes || admin || Boolean(me);
+  byId("participants-hint").textContent = publicWishes && !me
+    ? "Consulte as sugestões de presente sem se cadastrar."
+    : drawn
+      ? (me ? "Abra seu resultado ao lado do seu nome." : "As inscrições foram encerradas.")
+      : (me ? "Guarde seu link individual para acessar este cadastro em outro aparelho." : "Cadastre o seu nome para participar.");
+  byId("registration").hidden = drawn || Boolean(me);
   byId("add-form").hidden = drawn || Boolean(me);
-  byId("returning-participant").hidden = Boolean(me) || !count;
+  byId("returning-participant").hidden = !count;
+  byId("join-wishes-hint").textContent = publicWishes
+    ? "Quem receber o link da sala poderá ver suas sugestões."
+    : "Os participantes da sala poderão ver suas sugestões.";
+  byId("edit-wishes-hint").textContent = publicWishes
+    ? "As sugestões são salvas automaticamente e ficam visíveis para quem receber o link da sala."
+    : "As sugestões são salvas automaticamente e ficam visíveis para os participantes.";
   renderWishesEditor(people.find(person => person.id === me));
-  byId("participants-wishes-hint").hidden = !count || !(admin || me);
+  byId("participants-wishes-hint").hidden = !count || !canViewWishes;
   byId("empty").hidden = count !== 0;
   list.hidden = count === 0;
   const openLists = new Set([...list.querySelectorAll("details[open]")].map(details => details.dataset.wishlist));
   const focusedList = document.activeElement?.closest("summary")?.parentElement.dataset.wishlist;
-  const rows = people.map(person => renderPerson(person, openLists));
+  const rows = people.map(person => renderPerson(person, openLists, canViewWishes));
   list.replaceChildren(...rows);
   if (focusedList) rows.find(row => row.querySelector("details")?.dataset.wishlist === focusedList)
     ?.querySelector("summary")?.focus({preventScroll: true});
@@ -417,6 +429,9 @@ function render() {
   byId("draw-button").hidden = !admin;
   byId("draw-button").disabled = count < 2 || drawn;
   byId("reset-button").hidden = !admin;
+  byId("invite-description").textContent = publicWishes
+    ? "Compartilhe o link para a turma consultar as sugestões ou participar do sorteio."
+    : "Compartilhe o link para a turma cadastrar o nome e as sugestões de presente.";
   byId("admin-link").hidden = !admin;
   byId("new-room-link").hidden = !admin;
   byId("member-link").hidden = !me;
@@ -507,7 +522,7 @@ async function saveWishes() {
   editWishesInput.value = savedWishes;
   if (stored(draftKey)?.value === wishes) remember(draftKey, null);
   showMessage("wishes-feedback", savedWishes
-    ? "Sugestões salvas. Os participantes já podem vê-las no seu nome."
+    ? "Sugestões salvas. Já aparecem no seu nome."
     : "Sua lista de sugestões está vazia.");
 }
 
@@ -527,8 +542,13 @@ async function transact(action, fields = {}, errorId = "error") {
     update(response.room);
     return response;
   } catch (error) {
-    showMessage(errorId, error.message.startsWith("Failed to") || error.name === "TimeoutError"
-      ? "Não foi possível conectar. Confira a internet e tente novamente." : error.message);
+    let message = error.message;
+    if (error.message.startsWith("Failed to") || error.name === "TimeoutError") {
+      message = "Não foi possível conectar. Confira a internet e tente novamente.";
+    } else if (action === "join" && error.message.startsWith("Esse nome já está na lista.")) {
+      message = "Esse nome já está na lista. Se o cadastro é seu, use seu link individual para editar suas sugestões.";
+    }
+    showMessage(errorId, message);
     return null;
   } finally {
     busy = false;
@@ -581,7 +601,7 @@ byId("add-form").addEventListener("submit", async event => {
     joinWishes.value = "";
     byId("status").textContent = "Seu cadastro foi salvo.";
     if (wishes.trim() && editorMember && savedWishes) {
-      showMessage("wishes-feedback", "Sugestões salvas. Os participantes já podem vê-las no seu nome.");
+      showMessage("wishes-feedback", "Sugestões salvas. Já aparecem no seu nome.");
     }
   }
 });
@@ -740,22 +760,6 @@ document.addEventListener("visibilitychange", refresh);
           </div>
           <span class="counter" id="counter" aria-label="Total de participantes">0</span>
         </header>
-        <p class="subtext" id="returning-participant" hidden>Já está na lista? Use seu link individual ou abra no navegador em que você se cadastrou.</p>
-        <form id="add-form" novalidate>
-          <div class="registration-fields">
-            <div class="form-field">
-              <label for="name-input">Seu nome</label>
-              <input id="name-input" type="text" autocomplete="name" maxlength="60" placeholder="Digite seu nome" aria-describedby="form-error">
-            </div>
-            <div class="form-field">
-              <label for="join-wishes">Sugestões de presente <span>(opcional)</span></label>
-              <textarea id="join-wishes" rows="3" maxlength="500" placeholder="Uma sugestão de presente por linha" aria-describedby="join-wishes-hint form-error"></textarea>
-              <p class="subtext" id="join-wishes-hint">Os participantes da sala poderão ver suas sugestões ao lado do seu nome.</p>
-            </div>
-            <button type="submit" class="button button-green"><span data-icon="plus"></span>Participar</button>
-          </div>
-          <p id="form-error" class="error" role="alert" hidden></p>
-        </form>
         <form class="wish-editor" id="wishes-form" hidden>
           <div class="form-field">
             <label for="edit-wishes-input">Minhas sugestões de presente</label>
@@ -774,6 +778,25 @@ document.addEventListener("visibilitychange", refresh);
           <p>Quando alguém se cadastrar, o nome vai aparecer aqui.</p>
         </div>
         <ul id="participants" class="participants" aria-label="Lista de participantes" hidden></ul>
+        <details class="registration" id="registration" hidden>
+          <summary>Quero participar do sorteio</summary>
+          <p class="subtext" id="returning-participant" hidden>Já está na lista? Use seu link individual ou abra no navegador em que você se cadastrou.</p>
+          <form id="add-form" novalidate>
+            <div class="registration-fields">
+              <div class="form-field">
+                <label for="name-input">Seu nome</label>
+                <input id="name-input" type="text" autocomplete="name" maxlength="60" placeholder="Digite seu nome" aria-describedby="form-error">
+              </div>
+              <div class="form-field">
+                <label for="join-wishes">Sugestões de presente <span>(opcional)</span></label>
+                <textarea id="join-wishes" rows="3" maxlength="500" placeholder="Uma sugestão de presente por linha" aria-describedby="join-wishes-hint form-error"></textarea>
+                <p class="subtext" id="join-wishes-hint">Os participantes da sala poderão ver suas sugestões ao lado do seu nome.</p>
+              </div>
+              <button type="submit" class="button button-green"><span data-icon="plus"></span>Participar</button>
+            </div>
+            <p id="form-error" class="error" role="alert" hidden></p>
+          </form>
+        </details>
       </section>
       <aside class="siderail" aria-label="Convite e sorteio">
         <section class="card invite-card" aria-labelledby="invite-title">
@@ -781,7 +804,7 @@ document.addEventListener("visibilitychange", refresh);
             <span class="tile tile-green"><span data-icon="users"></span></span>
             <h2 id="invite-title">Convide a turma</h2>
           </div>
-          <p class="draw-text">Compartilhe este link para a turma cadastrar o nome e as sugestões de presente.</p>
+          <p class="draw-text" id="invite-description">Compartilhe o convite com a turma.</p>
           <button type="button" class="button button-green" id="invite-button"><span data-icon="clipboard"></span>Copiar link de convite</button>
           <button type="button" class="text-button" id="admin-link" hidden>Copiar meu link de organizador</button>
           <button type="button" class="text-button" id="member-link" hidden>Copiar meu link individual</button>
