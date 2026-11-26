@@ -82,6 +82,7 @@ h2 { color: var(--ink); font: 700 1.65rem/1.12 var(--serif); letter-spacing: -.0
 .counter { flex: none; min-width: 34px; padding: 4px 9px; text-align: center; background: var(--green-tint); border-radius: 100px; color: var(--green); font-size: .875rem; font-weight: 700; }
 .registration-fields, .form-field { display: grid; gap: 7px; }
 .registration-fields { gap: 14px; justify-items: stretch; }
+#returning-participant { margin-bottom: 12px; }
 .registration-fields .button { justify-self: start; }
 .form-field label { font-weight: 650; }
 .form-field label span { color: var(--subtle); font-weight: 400; }
@@ -261,6 +262,9 @@ const wishesForm = byId("wishes-form");
 const editWishesInput = byId("edit-wishes-input");
 let editorMember = null;
 let savedWishes = "";
+let wishesDirty = false;
+let wishesSaving = false;
+let wishesTimer;
 const revealDialog = byId("reveal-dialog");
 const resetDialog = byId("reset-dialog");
 const url = new URL(location.href);
@@ -345,6 +349,14 @@ function renderPerson(person, openLists) {
     wishes.className = "participant-wishes";
     wishes.textContent = person.wishes || "Ainda sem sugestões de presente.";
     details.append(wishes);
+    if (isMine) {
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "text-button";
+      edit.textContent = "Editar minhas sugestões";
+      edit.addEventListener("click", () => editWishesInput.focus());
+      details.append(edit);
+    }
   }
   row.append(avatar, details);
 
@@ -383,9 +395,10 @@ function render() {
   byId("counter").setAttribute("aria-label", count === 1 ? "1 participante" : count + " participantes");
   byId("participants-hint").textContent = drawn
     ? (me ? "Abra seu resultado ao lado do seu nome." : "As inscrições foram encerradas.")
-    : (me ? "Você já está na lista. Mantenha este link para voltar depois." : "Cadastre o seu nome para participar.");
+    : (me ? "Você já está na lista. Guarde seu link individual para acessar este cadastro em outro aparelho." : "Cadastre o seu nome para participar.");
   byId("add-form").hidden = drawn || Boolean(me);
-  renderWishesEditor(me, people.find(person => person.id === me)?.wishes ?? "");
+  byId("returning-participant").hidden = Boolean(me) || !count;
+  renderWishesEditor(people.find(person => person.id === me));
   byId("participants-wishes-hint").hidden = !count || !(admin || me);
   byId("empty").hidden = count !== 0;
   list.hidden = count === 0;
@@ -420,15 +433,82 @@ function render() {
   }
 }
 
-function renderWishesEditor(member, wishes) {
+function wishesDraftKey(member) {
+  return sessionKey + "wishes-draft." + roomId + "." + member;
+}
+
+function renderWishesEditor(person) {
+  const member = person?.id ?? null;
+  const wishes = person?.wishes ?? "";
   wishesForm.hidden = !member;
   if (editorMember !== member) {
+    clearTimeout(wishesTimer);
+    editorMember = member;
+    savedWishes = wishes;
+    wishesDirty = false;
+    byId("wishes-account").textContent = person?.name ?? "";
     showMessage("wishes-error");
     showMessage("wishes-feedback");
+
+    const draft = member ? stored(wishesDraftKey(member)) : null;
+    editWishesInput.value = typeof draft?.value === "string" ? draft.value : wishes;
+    wishesDirty = editWishesInput.value !== wishes;
+    if (wishesDirty && draft.base === wishes) {
+      scheduleWishesSave();
+    } else if (wishesDirty) {
+      showMessage("wishes-feedback", "Há um rascunho neste aparelho. Revise e toque em Salvar sugestões para enviar.");
+    }
+  } else {
+    if (!wishesDirty && !wishesSaving) editWishesInput.value = wishes;
+    savedWishes = wishes;
   }
-  if (editorMember !== member || editWishesInput.value === savedWishes) editWishesInput.value = wishes;
-  editorMember = member;
-  savedWishes = wishes;
+}
+
+function scheduleWishesSave(delay = 700) {
+  clearTimeout(wishesTimer);
+  wishesTimer = setTimeout(saveWishes, delay);
+}
+
+async function saveWishes() {
+  clearTimeout(wishesTimer);
+  const member = editorMember;
+  if (!member || !wishesDirty || wishesSaving) return;
+  if (busy) {
+    scheduleWishesSave(250);
+    return;
+  }
+
+  const wishes = editWishesInput.value;
+  const draftKey = wishesDraftKey(member);
+  if (wishes === savedWishes) {
+    wishesDirty = false;
+    if (stored(draftKey)?.value === wishes) remember(draftKey, null);
+    showMessage("wishes-error");
+    showMessage("wishes-feedback");
+    return;
+  }
+
+  wishesSaving = true;
+  byId("save-wishes").disabled = true;
+  showMessage("wishes-feedback", "Salvando suas sugestões…");
+  const response = await transact("update-wishes", {wishes}, "wishes-error");
+  wishesSaving = false;
+  byId("save-wishes").disabled = false;
+  if (editorMember !== member) return;
+  if (!response) showMessage("wishes-feedback");
+  if (editWishesInput.value !== wishes) {
+    if (response) remember(draftKey, {value: editWishesInput.value, base: savedWishes});
+    scheduleWishesSave();
+    return;
+  }
+  if (!response) return;
+
+  wishesDirty = false;
+  editWishesInput.value = savedWishes;
+  if (stored(draftKey)?.value === wishes) remember(draftKey, null);
+  showMessage("wishes-feedback", savedWishes
+    ? "Sugestões salvas. Os participantes já podem vê-las no seu nome."
+    : "Sua lista de sugestões está vazia.");
 }
 
 function update(next) {
@@ -494,33 +574,34 @@ byId("add-form").addEventListener("submit", async event => {
   credentials.member ||= secret();
   const saved = remember(sessionKey + roomId, credentials);
   if (!saved) history.replaceState(null, "", roomLink(roomId, credentials));
-  const response = await transact("join", {name, wishes: joinWishes.value}, "form-error");
+  const wishes = joinWishes.value;
+  const response = await transact("join", {name, wishes}, "form-error");
   if (response) {
     nameInput.value = "";
     joinWishes.value = "";
     byId("status").textContent = "Seu cadastro foi salvo.";
+    if (wishes.trim() && editorMember && savedWishes) {
+      showMessage("wishes-feedback", "Sugestões salvas. Os participantes já podem vê-las no seu nome.");
+    }
   }
 });
 nameInput.addEventListener("input", () => showMessage("form-error"));
 joinWishes.addEventListener("input", () => showMessage("form-error"));
 
 editWishesInput.addEventListener("input", () => {
+  if (!editorMember) return;
+  wishesDirty = true;
+  remember(wishesDraftKey(editorMember), {value: editWishesInput.value, base: savedWishes});
   showMessage("wishes-error");
-  showMessage("wishes-feedback");
+  showMessage("wishes-feedback", "Salvamento automático pendente…");
+  scheduleWishesSave();
 });
-wishesForm.addEventListener("submit", async event => {
+wishesForm.addEventListener("submit", event => {
   event.preventDefault();
-  if (busy) return;
-  const button = byId("save-wishes");
-  button.disabled = true;
-  editWishesInput.readOnly = true;
-  showMessage("wishes-feedback");
-  const response = await transact("update-wishes", {wishes: editWishesInput.value}, "wishes-error");
-  editWishesInput.readOnly = false;
-  button.disabled = false;
-  if (!response) return;
-  editWishesInput.value = savedWishes;
-  showMessage("wishes-feedback", "Suas sugestões foram salvas.");
+  saveWishes();
+});
+window.addEventListener("online", () => {
+  if (!byId("wishes-error").hidden) saveWishes();
 });
 
 async function copyLink(keys, message) {
@@ -659,6 +740,7 @@ document.addEventListener("visibilitychange", refresh);
           </div>
           <span class="counter" id="counter" aria-label="Total de participantes">0</span>
         </header>
+        <p class="subtext" id="returning-participant" hidden>Já está na lista? Use seu link individual ou abra no navegador em que você se cadastrou.</p>
         <form id="add-form" novalidate>
           <div class="registration-fields">
             <div class="form-field">
@@ -677,8 +759,9 @@ document.addEventListener("visibilitychange", refresh);
         <form class="wish-editor" id="wishes-form" hidden>
           <div class="form-field">
             <label for="edit-wishes-input">Minhas sugestões de presente</label>
-            <textarea id="edit-wishes-input" rows="3" maxlength="500" placeholder="Uma sugestão de presente por linha" aria-describedby="edit-wishes-hint wishes-error"></textarea>
-            <p class="subtext" id="edit-wishes-hint">Os participantes podem ver suas sugestões ao tocar no seu nome.</p>
+            <p class="subtext" id="wishes-identity">Seu cadastro é <strong id="wishes-account"></strong>.</p>
+            <textarea id="edit-wishes-input" rows="3" maxlength="500" placeholder="Uma sugestão de presente por linha" aria-describedby="wishes-identity edit-wishes-hint wishes-error"></textarea>
+            <p class="subtext" id="edit-wishes-hint">As sugestões são salvas automaticamente e ficam visíveis para quem tocar no seu nome.</p>
           </div>
           <p class="error" id="wishes-error" role="alert" hidden></p>
           <button type="submit" class="button button-green" id="save-wishes"><span data-icon="gift"></span>Salvar sugestões</button>
