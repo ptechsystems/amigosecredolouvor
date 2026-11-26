@@ -80,7 +80,15 @@ h2 { color: var(--ink); font: 700 1.65rem/1.12 var(--serif); letter-spacing: -.0
 .tile-green { background: var(--green-tint); color: var(--green); }
 .tile-red { background: var(--red-tint); color: var(--red); }
 .counter { flex: none; min-width: 34px; padding: 4px 9px; text-align: center; background: var(--green-tint); border-radius: 100px; color: var(--green); font-size: .875rem; font-weight: 700; }
-.add-row { display: flex; gap: 9px; }
+.registration-fields, .form-field { display: grid; gap: 7px; }
+.registration-fields { gap: 14px; justify-items: stretch; }
+.registration-fields .button { justify-self: start; }
+.form-field label { font-weight: 650; }
+.form-field label span { color: var(--subtle); font-weight: 400; }
+.form-field .subtext { margin: 0; }
+.form-field textarea { min-height: 90px; }
+.wish-edit-button { margin: -7px 0 11px; padding-inline: 10px; background: var(--green-tint); }
+.wish-edit-button:hover { background: #dce9df; }
 input, textarea { width: 100%; min-width: 0; padding: 11px 13px; color: var(--ink); border: 1px solid #d8ded5; border-radius: 10px; background: #fff; }
 input::placeholder, textarea::placeholder { color: #69756b; }
 textarea { display: block; min-height: 130px; resize: vertical; }
@@ -117,7 +125,13 @@ textarea { display: block; min-height: 130px; resize: vertical; }
 #add-form[hidden] ~ .participants { margin-top: 0; }
 .participant-row { position: relative; display: flex; align-items: center; gap: 11px; min-width: 0; padding: 7px 8px 7px 10px; background: #f7f9f4; border: 1px solid #ebeee7; border-radius: 11px; }
 .avatar { display: grid; flex: none; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--green-tint); color: var(--green); font-size: .8rem; font-weight: 700; }
-.participant-name { flex: 1; font-weight: 650; overflow-wrap: anywhere; }
+.participant-details { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.participant-name { font-weight: 650; }
+.participant-wishes { color: var(--subtle); font-size: .91rem; overflow-wrap: anywhere; white-space: pre-wrap; }
+.participant-details .participant-wishes { margin-top: 3px; }
+.reveal-wishes { padding: 12px; background: var(--green-tint); border-radius: 10px; }
+.reveal-wishes .participant-wishes { margin-top: 4px; }
+.participant-row .remove { flex: none; }
 .row-action { flex: none; min-height: 40px; }
 .row-action::after { content: ""; position: absolute; inset: 0; border-radius: 10px; }
 .participant-row:has(.row-action):hover { background: var(--green-tint); }
@@ -180,8 +194,7 @@ dialog::backdrop { background: #142e27a8; }
   .card-header { margin-bottom: 16px; }
   h2 { font-size: 1.45rem; }
   .tile { width: 36px; height: 36px; border-radius: 10px; }
-  .add-row .button { gap: 4px; padding-inline: 9px; }
-  .add-row .button svg { width: 15px; height: 15px; }
+  .registration-fields .button { justify-self: stretch; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; }
@@ -240,6 +253,9 @@ const tokenPattern = /^[a-f0-9]{64}$/;
 const sessionKey = "amigo-secreto.online.";
 const list = byId("participants");
 const nameInput = byId("name-input");
+const joinWishes = byId("join-wishes");
+const wishesDialog = byId("wishes-dialog");
+const editWishesInput = byId("edit-wishes-input");
 const revealDialog = byId("reveal-dialog");
 const resetDialog = byId("reset-dialog");
 const url = new URL(location.href);
@@ -313,7 +329,16 @@ function renderPerson(person) {
   label.className = "participant-name";
   const isMine = state.me === person.id;
   label.textContent = person.name + (isMine ? " (você)" : "");
-  row.append(avatar, label);
+  const details = document.createElement("div");
+  details.className = "participant-details";
+  details.append(label);
+  if (person.wishes) {
+    const wishes = document.createElement("p");
+    wishes.className = "participant-wishes";
+    wishes.textContent = person.wishes;
+    details.append(wishes);
+  }
+  row.append(avatar, details);
 
   if ((state.drawn && isMine) || (!state.drawn && (state.admin || isMine))) {
     const action = document.createElement("button");
@@ -352,6 +377,9 @@ function render() {
     ? (me ? "Abra seu resultado ao lado do seu nome." : "As inscrições foram encerradas.")
     : (me ? "Você já está na lista. Mantenha este link para voltar depois." : "Cadastre o seu nome para participar.");
   byId("add-form").hidden = drawn || Boolean(me);
+  byId("edit-wishes").hidden = !me;
+  const myWishes = people.find(person => person.id === me)?.wishes;
+  byId("edit-wishes-label").textContent = myWishes ? "Editar minha lista de desejos" : "Adicionar minha lista de desejos";
   byId("empty").hidden = count !== 0;
   list.hidden = count === 0;
   list.replaceChildren(...people.map(renderPerson));
@@ -443,13 +471,37 @@ byId("add-form").addEventListener("submit", async event => {
   credentials.member ||= secret();
   const saved = remember(sessionKey + roomId, credentials);
   if (!saved) history.replaceState(null, "", roomLink(roomId, credentials));
-  const response = await transact("join", {name}, "form-error");
+  const response = await transact("join", {name, wishes: joinWishes.value}, "form-error");
   if (response) {
     nameInput.value = "";
-    byId("status").textContent = "Seu nome foi cadastrado.";
+    joinWishes.value = "";
+    byId("status").textContent = "Seu cadastro foi salvo.";
   }
 });
 nameInput.addEventListener("input", () => showMessage("form-error"));
+joinWishes.addEventListener("input", () => showMessage("form-error"));
+
+byId("edit-wishes").addEventListener("click", () => {
+  const person = state.people.find(entry => entry.id === state.me);
+  if (!person) return;
+  editWishesInput.value = person.wishes ?? "";
+  showMessage("wishes-error");
+  wishesDialog.showModal();
+  editWishesInput.focus();
+});
+editWishesInput.addEventListener("input", () => showMessage("wishes-error"));
+byId("wishes-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (busy) return;
+  const button = byId("save-wishes");
+  button.disabled = true;
+  const response = await transact("update-wishes", {wishes: editWishesInput.value}, "wishes-error");
+  button.disabled = false;
+  if (!response) return;
+  wishesDialog.close();
+  byId("status").textContent = "Sua lista de desejos foi salva.";
+  byId("edit-wishes").focus({preventScroll: true});
+});
 
 async function copyLink(keys, message) {
   const fallback = byId("copy-fallback");
@@ -506,12 +558,19 @@ byId("reveal-button").addEventListener("click", async () => {
     byId("reveal-title").textContent = "Seu amigo secreto é…";
     byId("reveal-instruction").hidden = true;
     showMessage("secret-name", response.result);
+    const wishes = response.room.people.find(person => person.name === response.result)?.wishes;
+    byId("secret-wishes").textContent = wishes ?? "";
+    byId("reveal-wishes").hidden = !wishes;
     byId("reveal-button").hidden = true;
     byId("hide-button").hidden = false;
     byId("hide-button").focus();
   }
 });
-revealDialog.addEventListener("close", () => showMessage("secret-name"));
+revealDialog.addEventListener("close", () => {
+  showMessage("secret-name");
+  byId("secret-wishes").textContent = "";
+  byId("reveal-wishes").hidden = true;
+});
 byId("help-button").addEventListener("click", () => byId("help-dialog").showModal());
 document.querySelectorAll("[data-close]").forEach(button => {
   button.addEventListener("click", () => button.closest("dialog").close());
@@ -581,12 +640,21 @@ document.addEventListener("visibilitychange", refresh);
           <span class="counter" id="counter" aria-label="Total de participantes">0</span>
         </header>
         <form id="add-form" novalidate>
-          <div class="add-row">
-            <input id="name-input" type="text" autocomplete="off" maxlength="60" placeholder="Seu nome" aria-label="Seu nome" aria-describedby="form-error">
+          <div class="registration-fields">
+            <div class="form-field">
+              <label for="name-input">Seu nome</label>
+              <input id="name-input" type="text" autocomplete="name" maxlength="60" placeholder="Digite seu nome" aria-describedby="form-error">
+            </div>
+            <div class="form-field">
+              <label for="join-wishes">Lista de desejos <span>(opcional)</span></label>
+              <textarea id="join-wishes" rows="3" maxlength="500" placeholder="Uma sugestão de presente por linha" aria-describedby="join-wishes-hint form-error"></textarea>
+              <p class="subtext" id="join-wishes-hint">Os participantes da sala poderão ver suas sugestões ao lado do seu nome.</p>
+            </div>
             <button type="submit" class="button button-green"><span data-icon="plus"></span>Participar</button>
           </div>
           <p id="form-error" class="error" role="alert" hidden></p>
         </form>
+        <button type="button" class="text-button wish-edit-button" id="edit-wishes" hidden><span data-icon="gift"></span><span id="edit-wishes-label">Minha lista de desejos</span></button>
         <div id="empty" class="empty">
           <span class="empty-icon"><span data-icon="users"></span></span>
           <p><strong>Nenhum participante ainda</strong></p>
@@ -600,7 +668,7 @@ document.addEventListener("visibilitychange", refresh);
             <span class="tile tile-green"><span data-icon="users"></span></span>
             <h2 id="invite-title">Convide a turma</h2>
           </div>
-          <p class="draw-text">Compartilhe este link para cada pessoa cadastrar seu nome.</p>
+          <p class="draw-text">Compartilhe este link para a turma cadastrar o nome e as sugestões de presente.</p>
           <button type="button" class="button button-green" id="invite-button"><span data-icon="clipboard"></span>Copiar link de convite</button>
           <button type="button" class="text-button" id="admin-link" hidden>Copiar meu link de organizador</button>
           <button type="button" class="text-button" id="member-link" hidden>Copiar meu link individual</button>
@@ -641,11 +709,25 @@ document.addEventListener("visibilitychange", refresh);
       <h2 id="help-title">Como funciona</h2>
       <ol class="instructions">
         <li>Crie uma sala e envie o link de convite para a turma.</li>
-        <li>Cada pessoa abre o convite e cadastra o próprio nome. A lista é atualizada para todos.</li>
+        <li>Cada pessoa abre o convite e cadastra o próprio nome. Pode incluir sugestões de presente ou preencher a lista de desejos depois.</li>
         <li>Quando estiverem todos na lista, o organizador toca em <strong>Realizar sorteio</strong>. Cada pessoa revela o próprio resultado no celular.</li>
       </ol>
       <button type="button" class="button button-green" data-close>Entendi</button>
     </div>
+  </dialog>
+
+  <dialog id="wishes-dialog" aria-labelledby="wishes-title">
+    <form class="dialog-body" id="wishes-form">
+      <button type="button" class="icon-button close" data-close aria-label="Fechar"><span data-icon="close"></span></button>
+      <h2 id="wishes-title">Minha lista de desejos</h2>
+      <div class="form-field">
+        <label for="edit-wishes-input">Sugestões de presente</label>
+        <textarea id="edit-wishes-input" rows="4" maxlength="500" placeholder="Uma sugestão de presente por linha" aria-describedby="edit-wishes-hint wishes-error"></textarea>
+        <p class="subtext" id="edit-wishes-hint">Os participantes da sala poderão ver suas sugestões ao lado do seu nome.</p>
+      </div>
+      <p class="error" id="wishes-error" role="alert" hidden></p>
+      <button type="submit" class="button button-green" id="save-wishes">Salvar lista</button>
+    </form>
   </dialog>
 
   <dialog id="reveal-dialog" aria-labelledby="reveal-title">
@@ -655,6 +737,10 @@ document.addEventListener("visibilitychange", refresh);
       <h2 id="reveal-title"></h2>
       <p id="reveal-instruction">Seu resultado é individual. Abra quando quiser ver quem você tirou.</p>
       <p class="secret-name" id="secret-name" role="status" hidden></p>
+      <div class="reveal-wishes" id="reveal-wishes" hidden>
+        <strong>Lista de desejos</strong>
+        <p class="participant-wishes" id="secret-wishes"></p>
+      </div>
       <p class="error" id="reveal-error" role="alert" hidden></p>
       <button type="button" class="button button-red" id="reveal-button"><span data-icon="eye"></span>Revelar meu amigo secreto</button>
       <button type="button" class="button button-green" id="hide-button" data-close hidden><span data-icon="lock"></span>Ocultar e fechar</button>
